@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: psyhelp-postgres
+    environment:
+      POSTGRES_DB: psyhelp
+      POSTGRES_USER: psyhelp_user
+      POSTGRES_PASSWORD: psyhelp_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - psyhelp-network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: psyhelp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - psyhelp-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: psyhelp-backend
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DATABASE_URL: postgresql://psyhelp_user:psyhelp_password@postgres:5432/psyhelp
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your_super_secret_jwt_key_here
+      JWT_EXPIRES_IN: 7d
+      GOOGLE_CLIENT_ID: your_google_client_id
+      GOOGLE_CLIENT_SECRET: your_google_client_secret
+      GOOGLE_CALLBACK_URL: http://localhost:3000/auth/google/callback
+      ADMIN_EMAIL: admin@gmail.com
+      ADMIN_PASSWORD: a1
+      HUGGINGFACE_API_KEY: your_huggingface_api_key
+      FRONTEND_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:5000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - psyhelp-network
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  # Frontend Web App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: psyhelp-frontend
+    environment:
+      REACT_APP_BACKEND_URL: http://localhost:5000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - psyhelp-network
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  # Nginx Reverse Proxy (Optional)
+  nginx:
+    image: nginx:alpine
+    container_name: psyhelp-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - psyhelp-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  psyhelp-network:
+    driver: bridge
+
